@@ -1,0 +1,108 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: rate-limiter-gateway
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:gatewaydb}
+    username: ${DB_USER:gateway}
+    password: ${DB_PASSWORD:gateway}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  cloud:
+    gateway:
+      routes:
+        - id: backend-a
+          uri: ${BACKEND_A_URI:http://localhost:9001}
+          predicates:
+            - Path=/api/a/**
+          filters:
+            - StripPrefix=2
+            - name: CircuitBreaker
+              args:
+                name: backendACircuitBreaker
+                fallbackUri: forward:/fallback
+
+        - id: backend-b
+          uri: ${BACKEND_B_URI:http://localhost:9002}
+          predicates:
+            - Path=/api/b/**
+          filters:
+            - StripPrefix=2
+            - name: CircuitBreaker
+              args:
+                name: backendBCircuitBreaker
+                fallbackUri: forward:/fallback
+
+# --- Custom gateway settings ---
+gateway:
+  tenant-policy:
+    refresh-interval-ms: 15000
+  security:
+    jwt-secret: ${JWT_SECRET:change-this-to-a-long-random-secret-in-production-min-32-bytes}
+    jwt-expiration-ms: 3600000
+    admin-username: ${ADMIN_USERNAME:admin}
+    admin-password: ${ADMIN_PASSWORD:admin123}
+
+# --- Resilience4j circuit breakers ---
+resilience4j:
+  circuitbreaker:
+    instances:
+      backendACircuitBreaker:
+        sliding-window-size: 20
+        sliding-window-type: COUNT_BASED
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+      backendBCircuitBreaker:
+        sliding-window-size: 20
+        sliding-window-type: COUNT_BASED
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 5
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+  timelimiter:
+    instances:
+      backendACircuitBreaker:
+        timeout-duration: 4s
+      backendBCircuitBreaker:
+        timeout-duration: 4s
+
+# --- Observability ---
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics, circuitbreakers, circuitbreakerevents
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+logging:
+  level:
+    com.gateway: INFO
+    org.springframework.cloud.gateway: INFO
