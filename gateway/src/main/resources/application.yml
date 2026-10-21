@@ -5,8 +5,43 @@ spring:
   application:
     name: rate-limiter-gateway
 
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/gatewaydb
+    username: gateway
+    password: gateway
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  cloud:
+    gateway:
+      routes:
+        # Client calls /api/a/foo  ->  gateway strips "/api/a"  ->  backend-a gets /foo
+        - id: backend-a
+          uri: http://localhost:9001
+          predicates:
+            - Path=/api/a/**
+          filters:
+            - StripPrefix=2
+
+        - id: backend-b
+          uri: http://localhost:9002
+          predicates:
+            - Path=/api/b/**
+          filters:
+            - StripPrefix=2
+
 management:
   endpoints:
     web:
       exposure:
         include: health, info
+  endpoint:
+    health:
+      show-details: always
